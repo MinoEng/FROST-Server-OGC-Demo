@@ -1,0 +1,44 @@
+{
+  "name": "Living Room",
+  "description": "My Living Room",
+  "properties": {
+    "style": "Cozy",
+    "balcony": true
+  },
+  "Locations": [
+    {
+      "name": "My Living Room",
+      "description": "106 Solan Drive, Waimauku (approx)",
+      "encodingType": "application/vnd.geo+json",
+      "location": {
+        "type": "Point",
+        "coordinates": [174.4921, -36.7696]
+      }
+    }
+  ],
+  "Datastreams": [
+    {
+      "name": "Temperature Living Room",
+      "description": "The temperature in my living room",
+      "observationType": "http://www.opengis.net/def/observationType/OGC-OM/2.0/OM_Measurement",
+      "unitOfMeasurement": {
+        "name": "Centigrade",
+        "symbol": "C",
+        "definition": "http://www.qudt.org/qudt/owl/1.0.0/unit/Instances.html#DegreeCentigrade"
+      },
+      "Sensor": {
+        "name": "DHT22/Temperature",
+        "description": "Temperature sensor of a DHT22",
+        "encodingType": "application/pdf",
+        "metadata": "https://www.sparkfun.com/datasheets/Sensors/Temperature/DHT22.pdf"
+      },
+      "ObservedProperty": {
+        "name": "Temperature",
+        "definition": "http://www.qudt.org/qudt/owl/1.0.0/quantity/Instances.html#ThermodynamicTemperature",
+        "description": "The temperature."
+      },
+      "Observations": [
+      ]
+    }
+  ]
+}

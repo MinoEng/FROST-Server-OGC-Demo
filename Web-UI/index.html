@@ -1,0 +1,301 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leaflet + FROST + Entry Panel + Live Chart (Now timestamp)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Libs -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+  <script src="https://unpkg.com/sta-map@latest/dist/stam.min.js"></script>
+
+  <style>
+    :root { --panel-w: 380px; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .wrap { display:flex; min-height:100vh; }
+    .map { height: 100vh; width: calc(100vw - var(--panel-w)); }
+    .panel {
+      width: var(--panel-w);
+      border-left: 1px solid #e5e7eb;
+      padding: 14px 14px 20px;
+      box-sizing: border-box;
+      background:#fafafa;
+      overflow:auto;
+    }
+    .panel h2{ margin: 4px 0 12px; font-size: 18px;}
+    .panel .row{ display:flex; gap:8px; }
+    .panel label{ display:block; font-size:12px; color:#444; margin:8px 0 4px; }
+    .panel input, .panel select, .panel textarea{
+      width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px; font-size:14px;
+    }
+    .panel .hint{ font-size:12px; color:#6b7280; margin-top:4px;}
+    .panel button{
+      margin-top:12px; padding:10px 12px; background:#2563eb; color:#fff; border:0; border-radius:8px; cursor:pointer;
+    }
+    .panel button:disabled{ opacity:.5; cursor:not-allowed; }
+    .log{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; background:#fff; border:1px solid #e5e7eb; border-radius:6px; padding:8px; max-height:180px; overflow:auto;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="map" class="map"></div>
+
+    <!-- Right panel -->
+    <aside class="panel">
+      <h2>Post a SensorThings Observation</h2>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>FROST Base URL</label>
+          <input id="baseUrl" value="https://frost.devaldi.com/FROST-Server/v1.1" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>Datastream @iot.id</label>
+          <input id="dsId" type="number" value="1" />
+          <div class="hint">Must exist already (this version does not auto-create).</div>
+        </div>
+      </div>
+
+      <label>FeatureOfInterest name</label>
+      <input id="foiName" placeholder="e.g. Living Room" value="Living Room" />
+
+      <div class="row">
+        <div style="flex:1">
+          <label>Longitude</label>
+          <input id="lon" type="number" step="0.0000001" value="174.4921" />
+        </div>
+        <div style="flex:1">
+          <label>Latitude</label>
+          <input id="lat" type="number" step="0.0000001" value="-36.7696" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>Result (number)</label>
+          <input id="result" type="number" step="0.01" value="21.0" />
+          <div class="hint">Time is set to <strong>now (UTC)</strong> automatically.</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>BasicAuth username (optional)</label>
+          <input id="authUser" placeholder="admin" />
+        </div>
+        <div style="flex:1">
+          <label>BasicAuth password (optional)</label>
+          <input id="authPass" type="password" placeholder="admin" />
+        </div>
+      </div>
+
+      <button id="sendBtn">Send Observation</button>
+
+      <label style="margin-top:14px;">Request payload</label>
+      <pre class="log" id="payloadShow"></pre>
+
+      <label style="margin-top:14px;">Live chart (last 200 points)</label>
+      <div id="chart" style="height:240px;border:1px solid #e5e7eb;border-radius:6px;background:#fff;"></div>
+
+      <label>Response</label>
+      <pre class="log" id="respShow"></pre>
+    </aside>
+  </div>
+
+  <script>
+    // ----- MAP -----
+    const map2 = L.map('map', { preferCanvas: true }).setView([-36.8485, 174.7633], 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:'&copy; OpenStreetMap contributors'
+    }).addTo(map2);
+
+    L.stam({
+      baseUrl: "https://frost.devaldi.com/FROST-Server/v1.1",
+      markerStyle: () => "yellow",
+      cluster: false,
+      clusterMin: 5,
+      queryObject: { entityType: 'Things' }
+    }).addTo(map2);
+
+    // Single live marker; created on first MQTT message
+    let obsMarker = null;
+    let firstFixDone = false;
+
+    function upsertMarker(lat, lon, text){
+      const latlng = [lat, lon];
+      if (!obsMarker) {
+        obsMarker = L.circleMarker(latlng, {radius: 8}).addTo(map2);
+      } else {
+        obsMarker.setLatLng(latlng);
+      }
+      obsMarker.bindTooltip(text).openTooltip();
+      if (!firstFixDone) {
+        map2.flyTo(latlng, 14, { duration: 0.8 });
+        firstFixDone = true;
+      }
+    }
+
+    // ----- Helpers -----
+    function authHeaders(){
+      const u = document.getElementById('authUser').value;
+      const p = document.getElementById('authPass').value;
+      const h = { 'Content-Type': 'application/json' };
+      if (u || p) h['Authorization'] = 'Basic ' + btoa(`${u}:${p}`);
+      return h;
+    }
+
+    function nowIsoUtc(){
+      return new Date().toISOString();
+    }
+
+    function buildObservationPayload(){
+      const lon = parseFloat(document.getElementById('lon').value);
+      const lat = parseFloat(document.getElementById('lat').value);
+      const dsId = parseInt(document.getElementById('dsId').value, 10);
+      const result = parseFloat(document.getElementById('result').value);
+      const phenTime = nowIsoUtc(); // <-- always "now"
+      const foiName = document.getElementById('foiName').value || 'point';
+      return {
+        result,
+        phenomenonTime: phenTime,
+        FeatureOfInterest: {
+          name: foiName,
+          description: "inline FOI (from form)",
+          encodingType: "application/vnd.geo+json",
+          feature: { type: "Point", coordinates: [lon, lat] }
+        },
+        Datastream: { "@iot.id": dsId }
+      };
+    }
+
+    function renderPreview(){
+      // Show a fresh "now" every time you type or before sending
+      document.getElementById('payloadShow').textContent =
+        JSON.stringify(buildObservationPayload(), null, 2);
+    }
+    ['dsId','foiName','lon','lat','result','baseUrl','authUser','authPass']
+      .forEach(id => document.getElementById(id).addEventListener('input', renderPreview));
+    renderPreview();
+
+    // ----- Plotly live chart setup -----
+    const chartEl = document.getElementById('chart');
+    Plotly.newPlot(chartEl, [{
+      x: [],
+      y: [],
+      mode: 'lines+markers',
+      name: 'Result'
+    }], {
+      margin: {l:40, r:10, t:20, b:30},
+      xaxis: {title: 'Time', type: 'date'},
+      yaxis: {title: 'Result'}
+    });
+
+    function parsePhenomenonTime(p) {
+      if (!p) return new Date();
+      const s = String(p);
+      const first = s.includes('/') ? s.split('/')[0] : s;
+      const d = new Date(first);
+      return isNaN(d.getTime()) ? new Date() : d;
+    }
+
+    function chartAddPoint(phenomenonTime, result, keep = 200) {
+      const t = parsePhenomenonTime(phenomenonTime);
+      Plotly.extendTraces(chartEl, { x: [[t]], y: [[Number(result)]] }, [0], keep);
+    }
+
+    // ----- MQTT (direct to FROST WS) -----
+    const wsProto = (location.protocol === 'https:') ? 'wss' : 'ws';
+    const mqttUrl = `${wsProto}://${location.host}/mqtt`;
+    const client = mqtt.connect(mqttUrl, {
+      keepalive: 30, reconnectPeriod: 5000, connectTimeout: 20000,
+      clientId: 'web_' + Math.random().toString(16).slice(2),
+    });
+
+    client.on('connect', () => {
+      console.log('MQTT connected');
+      subscribeToCurrentDatastream();
+    });
+
+    function subscribeToCurrentDatastream(){
+      const dsId = document.getElementById('dsId').value || 1;
+      client.unsubscribe('#', () => {
+        client.subscribe(`v1.1/Datastreams(${dsId})/Observations`, err => {
+          if (err) console.error('subscribe error', err);
+          else console.log('Subscribed to Datastream', dsId);
+        });
+      });
+    }
+    document.getElementById('dsId').addEventListener('change', () => {
+      firstFixDone = false;
+      subscribeToCurrentDatastream();
+    });
+
+    client.on('message', (topic, payload) => {
+      try {
+        const msg = JSON.parse(payload.toString());
+        const it = Array.isArray(msg) ? msg[0] : msg;
+        const coords = it?.FeatureOfInterest?.feature?.coordinates;
+        const value = it?.result;
+        const t = it?.phenomenonTime || it?.resultTime || nowIsoUtc();
+
+        let latlng;
+        if (Array.isArray(coords) && coords.length >= 2) {
+          latlng = [coords[1], coords[0]];
+        } else {
+          // fall back to current form coords if no FOI in message
+          const lon = parseFloat(document.getElementById('lon').value);
+          const lat = parseFloat(document.getElementById('lat').value);
+          latlng = [lat, lon];
+        }
+        upsertMarker(latlng[0], latlng[1], `${value} @ ${t}`);
+        chartAddPoint(t, value);
+      } catch(e){ console.warn('Bad MQTT payload', e); }
+    });
+
+    // ----- POST button -----
+    document.getElementById('sendBtn').addEventListener('click', async () => {
+      const BASE = document.getElementById('baseUrl').value.replace(/\/+$/,'');
+      const headers = authHeaders();
+      const url = `${BASE}/Observations`;
+
+      // Build *fresh* payload so timestamp is truly "now"
+      const body = buildObservationPayload();
+      renderPreview(); // update preview with this exact "now"
+
+      const respBox = document.getElementById('respShow');
+      const btn = document.getElementById('sendBtn');
+
+      btn.disabled = true;
+      respBox.textContent = 'Posting...';
+
+      try{
+        const res = await fetch(url, {
+          method:'POST',
+          headers,
+          body: JSON.stringify(body)
+        });
+        const txt = await res.text();
+        respBox.textContent = `HTTP ${res.status}\n` + (txt || '<no body>');
+
+        if (res.ok) {
+          // optimistic map + chart update using the same "now"
+          const lon = parseFloat(document.getElementById('lon').value);
+          const lat = parseFloat(document.getElementById('lat').value);
+          upsertMarker(lat, lon, `${body.result} @ ${body.phenomenonTime} (posted)`);
+          chartAddPoint(body.phenomenonTime, body.result);
+        }
+      }catch(err){
+        respBox.textContent = 'Error: ' + err.message;
+      }finally{
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

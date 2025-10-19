@@ -1,0 +1,55 @@
+services:
+  web:
+    image: fraunhoferiosb/frost-server:2.6.1   # pin a version for stability
+    environment:
+      # --- Core ---
+      serviceRootUrl: http://localhost:8080/FROST-Server
+      http_cors_enable: "true"
+      http_cors_allowed_origins: "*"
+
+      # --- Plugins / features ---
+      plugins_multiDatastream_enable: "false"
+
+      # --- Persistence (FROST main DB) ---
+      persistence_db_driver: org.postgresql.Driver
+      persistence_db_url: jdbc:postgresql://database:5432/sensorthings
+      persistence_db_username: sensorthings
+      persistence_db_password: ChangeMe
+      persistence_autoUpdateDatabase: "true"   # flip to "false" after first init
+
+      # --- Authentication (BasicAuth using same DB) ---
+      # auth_provider: de.fraunhofer.iosb.ilt.frostserver.auth.basic.BasicAuthProvider
+      # auth_allowAnonymousRead: "false"
+      # auth_autoUpdateDatabase: "true"          # flip to "false" after first init
+      # auth_db_driver: org.postgresql.Driver
+      # auth_db_url: jdbc:postgresql://database:5432/sensorthings
+      # auth_db_username: sensorthings
+      # auth_db_password: ChangeMe
+
+    ports:
+      - "8080:8080"       # HTTP (SensorThings)
+      - "9876:9876"   # <-- expose FROST MQTT-over-WebSocket
+      - "1883:1883"     # MQTT; expose only if you really need it
+    depends_on:
+      database:
+        condition: service_healthy
+
+  database:
+    image: postgis/postgis:16-3.4-alpine
+    environment:
+      POSTGRES_DB: sensorthings
+      POSTGRES_USER: sensorthings
+      POSTGRES_PASSWORD: ChangeMe
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - postgis_volume:/var/lib/postgresql/data
+      # Optional: auto-enable PostGIS + uuid on first init:
+      # - ./initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d sensorthings -U sensorthings"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+volumes:
+  postgis_volume:

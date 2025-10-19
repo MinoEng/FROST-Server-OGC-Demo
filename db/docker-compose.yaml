@@ -1,0 +1,24 @@
+# docker-compose.yaml
+services:
+  database:
+    image: postgis/postgis:16-3.4-alpine   # includes PostGIS
+    container_name: sensorthings-db
+    environment:
+      POSTGRES_DB: sensorthings
+      POSTGRES_USER: sensorthings
+      POSTGRES_PASSWORD: ChangeMe
+    ports:
+      - "5432:5432"        # optional: expose to host; omit if you only use internal access
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Optional: auto-enable PostGIS + uuid on first init
+      - ./initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d sensorthings -U sensorthings"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+
