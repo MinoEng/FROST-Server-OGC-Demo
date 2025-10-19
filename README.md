@@ -1,5 +1,5 @@
 # FROST OGC Demo Server
-This is a fully functional FROST server with a Postgres database which was set up to test and compare OGC compliance within various realtime products. 
+This is a fully functional FROST server with a Postgres database which was set up to test and compare OGC compliance within various realtime products. It features a realtime user interface that can be used to post data to the FROST server and to see updates using MQTT. 
 
 ## Requirements
 * Docker
