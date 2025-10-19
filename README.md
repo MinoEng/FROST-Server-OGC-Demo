@@ -3,6 +3,7 @@ This is a fully functional FROST server with a Postgres database which was set u
 
 ## Requirements
 * Docker
+The scripts are created for OSX but the set up is platform independent. If you're not using OSX then you can run "docker compose up -d" instead
 
 ## Installing
 Install by running ./start-container.sh from the command prompt. This will configure a docker container that contains both FROST server as well as the database. 
