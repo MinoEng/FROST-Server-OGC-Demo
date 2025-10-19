@@ -9,7 +9,7 @@ This is a fully functional FROST server with a Postgres database which was set u
 Install by running ./start-container.sh from the command prompt. This will configure a docker container that contains both FROST server as well as the database. 
 
 ## Running
-Test the instance by opening the Web-UI/debug-localhost.html file in a browser. Use the index.html file if you're installing it on a server.
+Test the instance by opening the Web-UI/debug-localhost.html file in a browser. Use the index.html file if you want to run the realtime client on a web server.
 
 ## Author
 This Github repository was created by Minos Engström in 2025. 
