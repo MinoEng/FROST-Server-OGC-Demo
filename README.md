@@ -12,4 +12,4 @@ Install by running ./start-container.sh from the command prompt. This will confi
 Test the instance by opening the Web-UI/debug-localhost.html file in a browser. Use the index.html file if you want to run the realtime client on a web server.
 
 ## Author
-This Github repository was created by Minos Engström in 2025. 
+This Github repository was created by Minos (Erik) Engström in 2025. 
